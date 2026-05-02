@@ -388,51 +388,41 @@
     }
 
     async function handleTransfer() {
-        messageDiv.classList.add('hidden');
+    messageDiv.classList.add('hidden');
+    if (!validateInputs()) return;
 
-        if (!validateInputs()) return;
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = '<div class="spinner"></div><span>Processing...</span>';
 
-        submitBtn.disabled = true;
-        submitBtn.innerHTML = '<div class="spinner"></div><span>Processing...</span>';
-
-        try {
-            const response = await fetch(
-                'https://mtn-data-aggregator-production.up.railway.app/api/v1/transfer',
-                {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        receiverMsisdn: phoneInput.value,
-                        transferAmount: amountInput.value,
-                        paystackReference: `SFapi_${Date.now()}`,
-                        role: 'admin',
-                        type: 'DATA'
-                    })
-                }
-            );
-
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    try {
+        const response = await fetch(
+            'https://mtn-data-aggregator-production.up.railway.app/api/v1/transfer',
+            {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    receiverMsisdn: phoneInput.value,
+                    transferAmount: parseFloat(amountInput.value) * 1000, // Convert GB to MB
+                    paystackReference: `SFapi_${Date.now()}`,
+                    role: 'admin',
+                    type: 'DATA'
+                })
             }
+        );
 
-            const result = await response.json();
-            messageDiv.className = 'message success';
-            messageDiv.innerHTML = `
-                <div class="message-icon">✓</div>
-                <div class="message-content">
-                    <div class="message-title">Transfer Successful</div>
-                </div>
-            `;
-            messageDiv.classList.remove('hidden');
-            showResult(result);
-        } catch (err) {
-           console.error(err); // This will show the real error in the browser console
-showMessage('Connection failed. Check browser console (F12) for CORS errors.', 'error'); 
-        } finally {
-            submitBtn.disabled = false;
-            submitBtn.innerHTML = '<span>FIRE DATA</span><span>→</span>';
-        }
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || result.message);
+
+        showMessage('Transfer Successful!', 'success');
+        showResult(result);
+    } catch (err) {
+        showMessage(err.message, 'error');
+    } finally {
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = '<span>FIRE DATA</span><span>→</span>';
     }
+}
+
 </script>
 
 </body>
