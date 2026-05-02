@@ -426,7 +426,8 @@
             messageDiv.classList.remove('hidden');
             showResult(result);
         } catch (err) {
-            showMessage(err.message || 'An unexpected error occurred', 'error');
+           console.error(err); // This will show the real error in the browser console
+showMessage('Connection failed. Check browser console (F12) for CORS errors.', 'error'); 
         } finally {
             submitBtn.disabled = false;
             submitBtn.innerHTML = '<span>FIRE DATA</span><span>→</span>';
