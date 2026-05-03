@@ -318,120 +318,150 @@
     </div>
 </div>
 
+
 <script>
-    const phoneInput = document.getElementById('phone');
-    const amountInput = document.getElementById('amount');
-    const submitBtn = document.getElementById('submitBtn');
-    const messageDiv = document.getElementById('message');
-    const resultDiv = document.getElementById('result');
+const phoneInput = document.getElementById('phone');
+const amountInput = document.getElementById('amount');
+const submitBtn = document.getElementById('submitBtn');
+const messageDiv = document.getElementById('message');
+const resultDiv = document.getElementById('result');
 
-    // Allow Enter key to submit
-    [phoneInput, amountInput].forEach(input => {
-        input.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter' && !submitBtn.disabled) {
-                handleTransfer();
-            }
-        });
+let isProcessing = false;
+let lastRequestTime = 0;
+
+const COOLDOWN = 4000; // ⏱️ 4 seconds (adjust if needed)
+
+// Prevent Enter spam
+[phoneInput, amountInput].forEach(input => {
+    input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            handleTransfer();
+        }
     });
+});
 
-    function showMessage(text, type) {
-        messageDiv.className = `message ${type}`;
-        messageDiv.innerHTML = `
-            <div class="message-icon">
-                ${type === 'error' ? '⚠️' : '✓'}
-            </div>
-            <div class="message-content">
-                <div class="message-title">${type === 'error' ? 'Error' : 'Success'}</div>
-                <div>${escapeHtml(text)}</div>
-            </div>
-        `;
-        messageDiv.classList.remove('hidden');
-        resultDiv.classList.add('hidden');
+function showMessage(text, type) {
+    messageDiv.className = `message ${type}`;
+    messageDiv.innerHTML = `
+        <div class="message-icon">
+            ${type === 'error' ? '⚠️' : '✓'}
+        </div>
+        <div class="message-content">
+            <div class="message-title">${type === 'error' ? 'Error' : 'Success'}</div>
+            <div>${escapeHtml(text)}</div>
+        </div>
+    `;
+    messageDiv.classList.remove('hidden');
+    resultDiv.classList.add('hidden');
+}
+
+function showResult(data) {
+    resultDiv.textContent = JSON.stringify(data, null, 2);
+    resultDiv.classList.remove('hidden');
+}
+
+function validateInputs() {
+    const phone = phoneInput.value.trim();
+    const amount = amountInput.value;
+
+    if (!phone) {
+        showMessage('Receiver number is required', 'error');
+        return false;
     }
 
-    function showResult(data) {
-        resultDiv.textContent = JSON.stringify(data, null, 2);
-        resultDiv.classList.remove('hidden');
+    if (!/^\d{10,}$/.test(phone)) {
+
+        showMessage('Invalid phone number format', 'error');
+        return false;
     }
 
-    function validateInputs() {
-        const phone = phoneInput.value.trim();
-        const amount = amountInput.value;
-
-        if (!phone) {
-            showMessage('Receiver number is required', 'error');
-            return false;
-        }
-
-        if (!/^\d{10,}$/.test(phone)) {
-            showMessage('Invalid phone number format', 'error');
-            return false;
-        }
-
-        if (!amount || parseFloat(amount) <= 0) {
-            showMessage('Amount must be greater than 0', 'error');
-            return false;
-        }
-
-        return true;
+    if (!amount || parseFloat(amount) <= 0) {
+        showMessage('Amount must be greater than 0', 'error');
+        return false;
     }
 
-    function escapeHtml(text) {
-        const map = {
-            '&': '&amp;',
-            '<': '&lt;',
-            '>': '&gt;',
-            '"': '&quot;',
-            "'": '&#039;'
-        };
-        return String(text).replace(/[&<>"']/g, m => map[m]);
+    return true;
+}
+
+function escapeHtml(text) {
+    const map = {
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#039;'
+    };
+    return String(text).replace(/[&<>"']/g, m => map[m]);
+}
+
+async function handleTransfer() {
+    const now = Date.now();
+
+    // ⛔ Block if already processing
+    if (isProcessing) return;
+
+    // ⛔ Enforce cooldown
+    if (now - lastRequestTime < COOLDOWN) {
+        const wait = Math.ceil((COOLDOWN - (now - lastRequestTime)) / 1000);
+        showMessage(`Please wait ${wait}s before sending another request`, 'error');
+        return;
     }
 
-    async function handleTransfer() {
-        messageDiv.classList.add('hidden');
+    messageDiv.classList.add('hidden');
+    resultDiv.classList.add('hidden');
 
-        if (!validateInputs()) return;
+    if (!validateInputs()) return;
 
-        submitBtn.disabled = true;
-        submitBtn.innerHTML = '<div class="spinner"></div><span>Processing...</span>';
+    isProcessing = true;
+    lastRequestTime = now;
+
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = '<div class="spinner"></div><span>Processing...</span>';
+
+    try {
+        const response = await fetch(
+            'https://mtn-data-aggregator-production.up.railway.app/api/v1/transfer',
+            {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    receiverMsisdn: phoneInput.value.trim(),
+                    transferAmount: parseFloat(amountInput.value) * 1000,
+                 paystackReference: `SFapi_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+                    role: 'admin',
+                    type: 'DATA'
+                })
+            }
+        );
+
+        let result = null;
 
         try {
-            const response = await fetch(
-                'https://mtn-data-aggregator-production.up.railway.app/api/v1/transfer',
-                {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        receiverMsisdn: phoneInput.value,
-                        transferAmount: amountInput.value,
-                        paystackReference: `SFapi_${Date.now()}`,
-                        role: 'admin',
-                        type: 'DATA'
-                    })
-                }
-            );
-
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-            }
-
-            const result = await response.json();
-            messageDiv.className = 'message success';
-            messageDiv.innerHTML = `
-                <div class="message-icon">✓</div>
-                <div class="message-content">
-                    <div class="message-title">Transfer Successful</div>
-                </div>
-            `;
-            messageDiv.classList.remove('hidden');
-            showResult(result);
-        } catch (err) {
-            showMessage(err.message || 'An unexpected error occurred', 'error');
-        } finally {
-            submitBtn.disabled = false;
-            submitBtn.innerHTML = '<span>FIRE DATA</span><span>→</span>';
+            result = await response.json();
+        } catch {
+            throw new Error("Invalid server response");
         }
+
+        if (response.status === 429) {
+            throw new Error("Too many requests. Please wait a few seconds.");
+        }
+
+        if (!response.ok) {
+            throw new Error(result?.error || result?.message || "Transfer failed");
+        }
+
+        showMessage('Transfer Successful!', 'success');
+        showResult(result);
+
+    } catch (err) {
+        showMessage(err.message || "Something went wrong", 'error');
+    } finally {
+        isProcessing = false;
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = '<span>FIRE DATA</span><span>→</span>';
     }
+}
 </script>
 
 </body>
