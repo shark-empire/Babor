@@ -318,6 +318,7 @@
     </div>
 </div>
 
+
 <script>
 const phoneInput = document.getElementById('phone');
 const amountInput = document.getElementById('amount');
@@ -325,13 +326,16 @@ const submitBtn = document.getElementById('submitBtn');
 const messageDiv = document.getElementById('message');
 const resultDiv = document.getElementById('result');
 
-let isProcessing = false; // 🔒 Prevent duplicate requests
+let isProcessing = false;
+let lastRequestTime = 0;
 
-// Only allow Enter key ONCE safely
+const COOLDOWN = 4000; // ⏱️ 4 seconds (adjust if needed)
+
+// Prevent Enter spam
 [phoneInput, amountInput].forEach(input => {
     input.addEventListener('keydown', (e) => {
         if (e.key === 'Enter') {
-            e.preventDefault(); // 🚫 stop default double trigger
+            e.preventDefault();
             handleTransfer();
         }
     });
@@ -367,6 +371,7 @@ function validateInputs() {
     }
 
     if (!/^\d{10,}$/.test(phone)) {
+
         showMessage('Invalid phone number format', 'error');
         return false;
     }
@@ -391,8 +396,17 @@ function escapeHtml(text) {
 }
 
 async function handleTransfer() {
-    // 🔒 Block duplicate calls
+    const now = Date.now();
+
+    // ⛔ Block if already processing
     if (isProcessing) return;
+
+    // ⛔ Enforce cooldown
+    if (now - lastRequestTime < COOLDOWN) {
+        const wait = Math.ceil((COOLDOWN - (now - lastRequestTime)) / 1000);
+        showMessage(`Please wait ${wait}s before sending another request`, 'error');
+        return;
+    }
 
     messageDiv.classList.add('hidden');
     resultDiv.classList.add('hidden');
@@ -400,6 +414,8 @@ async function handleTransfer() {
     if (!validateInputs()) return;
 
     isProcessing = true;
+    lastRequestTime = now;
+
     submitBtn.disabled = true;
     submitBtn.innerHTML = '<div class="spinner"></div><span>Processing...</span>';
 
@@ -412,22 +428,27 @@ async function handleTransfer() {
                 body: JSON.stringify({
                     receiverMsisdn: phoneInput.value.trim(),
                     transferAmount: parseFloat(amountInput.value) * 1000,
-                    paystackReference: `SFapi_${Date.now()}`,
+                 paystackReference: `SFapi_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
                     role: 'admin',
                     type: 'DATA'
                 })
             }
         );
 
-        let result;
+        let result = null;
+
         try {
             result = await response.json();
         } catch {
             throw new Error("Invalid server response");
         }
 
+        if (response.status === 429) {
+            throw new Error("Too many requests. Please wait a few seconds.");
+        }
+
         if (!response.ok) {
-            throw new Error(result.error || result.message || "Transfer failed");
+            throw new Error(result?.error || result?.message || "Transfer failed");
         }
 
         showMessage('Transfer Successful!', 'success');
@@ -436,12 +457,9 @@ async function handleTransfer() {
     } catch (err) {
         showMessage(err.message || "Something went wrong", 'error');
     } finally {
-        // Small delay to avoid rapid re-click spam
-        setTimeout(() => {
-            isProcessing = false;
-            submitBtn.disabled = false;
-            submitBtn.innerHTML = '<span>FIRE DATA</span><span>→</span>';
-        }, 1200);
+        isProcessing = false;
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = '<span>FIRE DATA</span><span>→</span>';
     }
 }
 </script>
