@@ -177,8 +177,6 @@
 </head>
 <body>
 
-
-
 <div class="overlay" id="overlay" onclick="closeSidebar()"></div>
 
 <aside class="sidebar" id="sidebar">
@@ -325,7 +323,6 @@
 </div>
 
 <script>
-
 const WEBHOOK = "https://hook.us2.make.com/pfjsqrsfwoavl4rymqn3vvi2johjh6v8";
 let cachedData = null;
 
@@ -358,7 +355,10 @@ function timeAgo(dateStr) {
   return d.toLocaleDateString();
 }
 
-function nowStr() { return "Updated " + new Date().toLocaleTimeString(); }
+// Fixed time display function
+function nowStr() { 
+  return "Updated " + new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', second:'2-digit'}); 
+}
 
 function unwrap(val, fallback = "—") {
   if (val === null || val === undefined) return fallback;
@@ -380,19 +380,18 @@ async function fetchAll() {
     const text = await res.text();
     console.log("Webhook response text:", text);
 
-    // If Make.com returns default plain text "Accepted", intercept it and provide fallback data
     if (text && text.trim() === "Accepted") {
-      console.warn("Make.com returned plain 'Accepted' text. Using demo dashboard dataset until Webhook Response module is set up.");
+      console.warn("Make.com returned plain 'Accepted' text. Using demo dataset.");
       return getDemoData();
     }
 
     if (!text || (!text.trim().startsWith("{") && !text.trim().startsWith("["))) {
-      throw new Error("Non-JSON response received: " + text.substring(0, 100));
+      throw new Error("Non-JSON response received");
     }
 
     return JSON.parse(text);
   } catch (err) {
-    console.error("Network fetch failed, serving demo dashboard dataset.", err);
+    console.error("Network fetch failed. Error context:", err ? (err.message || err) : "Empty response payload");
     return getDemoData();
   }
 }
@@ -454,19 +453,41 @@ function renderStats(data) {
   document.getElementById("statsUpdated").textContent = nowStr();
 }
 
-function renderOrders(orders, bodyId, cols = 9) {
+// FIX A: Render Function Dedicated to Dashboard Recents (7 columns)
+function renderDashOrders(orders) {
+  const body = document.getElementById("dashOrdersBody");
   if (!orders || orders.length === 0) {
-    document.getElementById(bodyId).innerHTML = `<tr><td colspan="${cols}"><div class="empty-state"><p>No orders found</p></div></td></tr>`;
+    body.innerHTML = `<tr><td colspan="7"><div class="empty-state"><p>No recent orders found</p></div></td></tr>`;
     return;
   }
-  document.getElementById(bodyId).innerHTML = orders.map(o => `
+  body.innerHTML = orders.map(o => `
+    <tr>
+      <td><strong>${unwrap(o.reference ?? o.ref, "—")}</strong></td>
+      <td>${unwrap(o.customer ?? o.name, "—")}</td>
+      <td>${unwrap(o.bundle_size ?? o.bundle, "—")}</td>
+      <td>${netTag(unwrap(o.network, "—"))}</td>
+      <td><strong>GH₵ ${Number(unwrap(o.amount, 0)).toFixed(2)}</strong></td>
+      <td>${badgeFor(unwrap(o.status ?? o.vtu_status, "unknown"))}</td>
+      <td style="color:var(--muted);font-size:12px">${timeAgo(unwrap(o.timestamp ?? o.created_at, null))}</td>
+    </tr>
+  `).join("");
+}
+
+// FIX B: Render Function Dedicated to Dedicated Orders Tab (9 columns)
+function renderMainOrders(orders) {
+  const body = document.getElementById("ordersBody");
+  if (!orders || orders.length === 0) {
+    body.innerHTML = `<tr><td colspan="9"><div class="empty-state"><p>No orders found</p></div></td></tr>`;
+    return;
+  }
+  body.innerHTML = orders.map(o => `
     <tr>
       <td><strong>${unwrap(o.reference ?? o.ref, "—")}</strong></td>
       <td>${unwrap(o.customer ?? o.name, "—")}</td>
       <td>${unwrap(o.phone, "—")}</td>
       <td>${unwrap(o.bundle_size ?? o.bundle, "—")}</td>
       <td>${netTag(unwrap(o.network, "—"))}</td>
-      <td><strong>${Number(unwrap(o.amount, 0)).toFixed(2)}</strong></td>
+      <td><strong>GH₵ ${Number(unwrap(o.amount, 0)).toFixed(2)}</strong></td>
       <td>${unwrap(o.payment, "—")}</td>
       <td>${badgeFor(unwrap(o.status ?? o.vtu_status, "unknown"))}</td>
       <td style="color:var(--muted);font-size:12px">${timeAgo(unwrap(o.timestamp ?? o.created_at, null))}</td>
@@ -483,7 +504,7 @@ function renderTransactions(txs) {
     <tr>
       <td><strong>${unwrap(t.transaction_id ?? t.txn_id ?? t.id, "—")}</strong></td>
       <td>${unwrap(t.phone, "—")}</td>
-      <td><strong>${Number(unwrap(t.amount, 0)).toFixed(2)}</strong></td>
+      <td><strong>GH₵ ${Number(unwrap(t.amount, 0)).toFixed(2)}</strong></td>
       <td>${unwrap(t.bundle_size ?? t.bundle, "—")}</td>
       <td>${badgeFor(unwrap(t.mtn_status ?? t.status, "unknown"))}</td>
       <td style="font-size:12px">${unwrap(t.reference ?? t.ref, "—")}</td>
@@ -518,20 +539,18 @@ async function refreshAll() {
     const data = await fetchAll();
     cachedData = data;
 
-    // Standardize data source matching variations in target webhook schemas
     const statsSource = Array.isArray(data) ? (data[0] || {}) : data;
     const orders = Array.isArray(data) ? data : (data?.orders ?? data?.data ?? []);
     const transactions = data?.transactions ?? [];
     const customers = data?.customers ?? [];
 
     renderStats(statsSource);
-    renderOrders(orders, "dashOrdersBody", 7);
-    renderOrders(orders, "ordersBody", 9);
+    renderDashOrders(orders); // Render 7 columns on dashboard recents
+    renderMainOrders(orders); // Render 9 columns on main order screen
     renderTransactions(transactions);
     renderCustomers(customers);
 
     document.getElementById("ordersUpdated").textContent = nowStr();
-
   } catch (err) {
     console.error("Failed to parse and display dashboard parameters:", err);
     document.getElementById("statsUpdated").textContent = "⚠ Rendering Error: " + err.message;
@@ -589,13 +608,11 @@ setInterval(refreshAll, 120 * 1000);
 
 // ── BOOT ──────────────────────────────────────────────────
 document.addEventListener("DOMContentLoaded", () => {
-  // Gracefully clear Eruda's tracking log error issues if present
   if (typeof window.eruda !== 'undefined' && !window.eruda._isInit) {
     try { window.eruda.init(); } catch(e){}
   }
   refreshAll();
 });
-
 </script>
 
 </body>
