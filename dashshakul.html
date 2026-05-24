@@ -446,7 +446,8 @@ function renderStats(data) {
 }
 
 function renderDashOrders(orders) {
-  const body = document.getElementById("dash-orders-body"); // double check your ID matches
+  // FIXED: Changed from 'dash-orders-body' to 'dashOrdersBody'
+  const body = document.getElementById("dashOrdersBody"); 
   if (!body) return;
 
   if (!orders || orders.length === 0) {
@@ -467,7 +468,8 @@ function renderDashOrders(orders) {
 }
 
 function renderMainOrders(orders) {
-  const body = document.getElementById("main-orders-body"); // double check your ID matches
+  // FIXED: Changed from 'main-orders-body' to 'ordersBody'
+  const body = document.getElementById("ordersBody"); 
   if (!body) return;
 
   if (!orders || orders.length === 0) {
