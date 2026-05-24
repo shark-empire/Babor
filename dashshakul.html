@@ -446,40 +446,45 @@ function renderStats(data) {
 }
 
 function renderDashOrders(orders) {
-  const body = document.getElementById("dashOrdersBody");
+  const body = document.getElementById("dash-orders-body"); // double check your ID matches
+  if (!body) return;
+
   if (!orders || orders.length === 0) {
-    body.innerHTML = `<tr><td colspan="7"><div class="empty-state"><p>No recent orders found</p></div></td></tr>`;
+    body.innerHTML = `<tr><td colspan="6" style="text-align:center;color:var(--muted)">No recent orders found.</td></tr>`;
     return;
   }
+
   body.innerHTML = orders.map(o => `
     <tr>
-      <td><strong>${unwrap(o.reference ?? o.ref, "—")}</strong></td>
-      <td>${unwrap(o.customer ?? o.name, "—")}</td>
-      <td>${unwrap(o.bundle_size ?? o.bundle, "—")}</td>
+      <td><strong>${unwrap(o.reference ?? o.id, "—")}</strong></td>
+      <td>${unwrap(o.customer ?? o.account_name, "—")}</td>
+      <td>${unwrap(o.bundle_size ?? o.bundle_name, "—")}</td>
       <td>${netTag(unwrap(o.network, "—"))}</td>
       <td><strong>GH₵ ${Number(unwrap(o.amount, 0)).toFixed(2)}</strong></td>
-      <td>${badgeFor(unwrap(o.status ?? o.vtu_status, "unknown"))}</td>
-      <td style="color:var(--muted);font-size:12px">${timeAgo(unwrap(o.timestamp ?? o.created_at, null))}</td>
+      <td>${badgeFor(unwrap(o.status, "unknown"))}</td>
     </tr>
   `).join("");
 }
 
 function renderMainOrders(orders) {
-  const body = document.getElementById("ordersBody");
+  const body = document.getElementById("main-orders-body"); // double check your ID matches
+  if (!body) return;
+
   if (!orders || orders.length === 0) {
-    body.innerHTML = `<tr><td colspan="9"><div class="empty-state"><p>No orders found</p></div></td></tr>`;
+    body.innerHTML = `<tr><td colspan="9" style="text-align:center;color:var(--muted)">No orders recorded yet.</td></tr>`;
     return;
   }
+
   body.innerHTML = orders.map(o => `
     <tr>
-      <td><strong>${unwrap(o.reference ?? o.ref, "—")}</strong></td>
-      <td>${unwrap(o.customer ?? o.name, "—")}</td>
+      <td><strong>${unwrap(o.reference ?? o.id, "—")}</strong></td>
+      <td>${unwrap(o.customer ?? o.account_name, "—")}</td>
       <td>${unwrap(o.phone, "—")}</td>
-      <td>${unwrap(o.bundle_size ?? o.bundle, "—")}</td>
+      <td>${unwrap(o.bundle_size ?? o.bundle_name, "—")}</td>
       <td>${netTag(unwrap(o.network, "—"))}</td>
       <td><strong>GH₵ ${Number(unwrap(o.amount, 0)).toFixed(2)}</strong></td>
-      <td>${unwrap(o.payment, "—")}</td>
-      <td>${badgeFor(unwrap(o.status ?? o.vtu_status, "unknown"))}</td>
+      <td><span class="payment-badge">${unwrap(o.payment ?? "momo", "momo").toUpperCase()}</span></td>
+      <td>${badgeFor(unwrap(o.status, "unknown"))}</td>
       <td style="color:var(--muted);font-size:12px">${timeAgo(unwrap(o.timestamp ?? o.created_at, null))}</td>
     </tr>
   `).join("");
