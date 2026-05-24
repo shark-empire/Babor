@@ -368,13 +368,33 @@ function nowStr() { return "Updated " + new Date().toLocaleTimeString(); }
 // ── FETCH WRAPPER ─────────────────────────────────────────
 
 async function fetchWebhook(url, body) {
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body)
-  });
-  if (!res.ok) throw new Error("HTTP " + res.status);
-  return res.json();
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(body)
+    });
+
+    const text = await res.text();
+
+    console.log("Webhook response:", text);
+
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}`);
+    }
+
+    if (!text) {
+      throw new Error("Empty response");
+    }
+
+    return JSON.parse(text);
+
+  } catch (err) {
+    console.error("Webhook error:", err);
+    throw err;
+  }
 }
 
 // ── SPINNER ───────────────────────────────────────────────
@@ -385,16 +405,17 @@ function setRefreshing(on) {
 }
 
 // ── LOAD STATS ────────────────────────────────────────────
+
 async function loadStats() {
   try {
-    const data = await fetchWebhook(ADMIN_CONFIG.STATS_WEBHOOK, { action: "get_stats" });
+    const data = await fetchWebhook(ADMIN_CONFIG.STATS_WEBHOOK, { action: "status" }) || {}; // Fallback to empty object if null
 
-    // Make sure your Make.com Scenario aggregates data from Remadata's balance check!
-    const remadataWallet = data.api_wallet_balance ?? "—";
-    const revenue        = data.total_revenue      ?? data.revenue   ?? "—";
-    const orders         = data.total_orders       ?? data.orders    ?? "—";
-    const customers      = data.total_customers    ?? data.customers ?? "—";
-    const pending        = data.pending_orders     ?? data.pending   ?? "—";
+    // Safely check properties
+    const remadataWallet = data?.api_wallet_balance ?? "—";
+    const revenue        = data?.total_revenue      ?? data?.revenue   ?? 0;
+    const orders         = data?.total_orders       ?? data?.orders    ?? 0;
+    const customers      = data?.total_customers    ?? data?.customers ?? 0;
+    const pending        = data?.pending_orders     ?? data?.pending   ?? 0;
 
     const balanceNum = Number(remadataWallet);
     const balanceColor = !isNaN(balanceNum) && balanceNum < 20 ? 'var(--red)' : 'inherit';
@@ -451,12 +472,14 @@ async function loadStats() {
 }
 
 // ── LOAD ORDERS ───────────────────────────────────────────
+
 async function loadOrders(targetBodyId) {
   try {
-    const data = await fetchWebhook(ADMIN_CONFIG.ORDERS_WEBHOOK, { action: "get_orders" });
-    const orders = Array.isArray(data) ? data : (data.orders || data.data || []);
+    const data = await fetchWebhook(ADMIN_CONFIG.ORDERS_WEBHOOK, { action: "get_orders" }) || {};
+    // Fallback gracefully if data or orders is missing/null
+    const orders = Array.isArray(data) ? data : (data?.orders || data?.data || []);
 
-    if (orders.length === 0) {
+    if (!orders || orders.length === 0) {
       const empty = `<tr><td colspan="9"><div class="empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M11 21.73a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73z"/></svg><p>No orders yet</p></div></td></tr>`;
       document.getElementById(targetBodyId).innerHTML = empty;
       return;
