@@ -326,11 +326,8 @@
 
 <script>
 
-const ADMIN_CONFIG = {
-    WEBHOOK: "https://hook.us2.make.com/pfjsqrsfwoavl4rymqn3vvi2johjh6v8",
-    AUTO_REFRESH_SECONDS: 120
-};
-
+const WEBHOOK = "https://hook.us2.make.com/pfjsqrsfwoavl4rymqn3vvi2johjh6v8";
+let cachedData = null;
 
 // ── HELPERS ──────────────────────────────────────────────
 function badgeFor(status) {
@@ -353,266 +350,193 @@ function netTag(network) {
 function timeAgo(dateStr) {
   if (!dateStr) return "—";
   const d = new Date(dateStr);
-  if (isNaN(d.getTime())) return dateStr; // Return raw string if formatting fails
+  if (isNaN(d.getTime())) return dateStr;
   const diff = (Date.now() - d) / 1000;
-  if (diff < 60)   return Math.round(diff) + "s ago";
-  if (diff < 3600) return Math.round(diff/60) + "m ago";
-  if (diff < 86400)return Math.round(diff/3600) + "h ago";
+  if (diff < 60)    return Math.round(diff) + "s ago";
+  if (diff < 3600)  return Math.round(diff/60) + "m ago";
+  if (diff < 86400) return Math.round(diff/3600) + "h ago";
   return d.toLocaleDateString();
 }
 
 function nowStr() { return "Updated " + new Date().toLocaleTimeString(); }
 
-// Utility helper to unwrap nested properties coming from Make arrays safely
 function unwrap(val, fallback = "—") {
   if (val === null || val === undefined) return fallback;
-  if (Array.isArray(val)) {
-    return val.length > 0 ? unwrap(val[0], fallback) : fallback;
-  }
-  if (typeof val === 'object') {
-    // If it's a nested object, look for known common nested keys or stringify
-    return val.name || val.value || fallback;
-  }
+  if (Array.isArray(val)) return val.length > 0 ? unwrap(val[0], fallback) : fallback;
+  if (typeof val === "object") return val.name || val.value || fallback;
   return val;
 }
 
-// ── FETCH WRAPPER ─────────────────────────────────────────
+// ── SINGLE FETCH ──────────────────────────────────────────
+async function fetchAll() {
+  const res = await fetch(WEBHOOK, {
+    method: "POST",
+    mode: "cors",
+    headers: { "Content-Type": "application/json", "Accept": "application/json" },
+    body: JSON.stringify({ action: "get_all" })
+  });
 
-async function fetchWebhook(body) {
+  const text = await res.text();
+  console.log("Webhook response:", text);
+
+  if (!text || !text.trim().startsWith("{") && !text.trim().startsWith("[")) {
+    throw new Error("Non-JSON response: " + text.substring(0, 100));
+  }
+
+  return JSON.parse(text);
+}
+
+// ── RENDER ────────────────────────────────────────────────
+function renderStats(data) {
+  const balance  = unwrap(data?.api_wallet_balance, "—");
+  const revenue  = unwrap(data?.total_revenue ?? data?.revenue, 0);
+  const orders   = unwrap(data?.total_orders ?? data?.orders_count, 0);
+  const customers= unwrap(data?.total_customers ?? data?.customers_count, 0);
+  const pending  = unwrap(data?.pending_orders ?? data?.pending, 0);
+  const balNum   = Number(balance);
+  const balColor = !isNaN(balNum) && balNum < 20 ? "var(--red)" : "inherit";
+
+  document.getElementById("statsGrid").innerHTML = `
+    <div class="stat-card">
+      <div class="stat-body">
+        <div class="stat-label">Remadata Balance</div>
+        <div class="stat-value" style="color:${balColor}">GH₵ ${isNaN(balNum) ? balance : balNum.toFixed(2)}</div>
+        <div class="stat-change" style="color:${balColor}">${!isNaN(balNum) && balNum < 20 ? "⚠ Low Balance" : "✓ Active"}</div>
+      </div>
+      <div class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="20" height="14" x="2" y="5" rx="2"/><line x1="2" x2="22" y1="10" y2="10"/></svg></div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-body">
+        <div class="stat-label">Total Revenue</div>
+        <div class="stat-value">GH₵ ${Number(revenue).toLocaleString()}</div>
+        <div class="stat-change">↑ Live</div>
+      </div>
+      <div class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" x2="12" y1="2" y2="22"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-body">
+        <div class="stat-label">Total Orders</div>
+        <div class="stat-value">${Number(orders).toLocaleString()}</div>
+        <div class="stat-change">↑ Live</div>
+      </div>
+      <div class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 21.73a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73z"/></svg></div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-body">
+        <div class="stat-label">Customers</div>
+        <div class="stat-value">${Number(customers).toLocaleString()}</div>
+        <div class="stat-change">↑ Live</div>
+      </div>
+      <div class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg></div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-body">
+        <div class="stat-label">Pending Orders</div>
+        <div class="stat-value" style="color:${Number(pending) > 0 ? "var(--yellow)" : "inherit"}">${pending}</div>
+        <div class="stat-change" style="color:${Number(pending) > 0 ? "var(--yellow)" : "var(--green)"}">
+          ${Number(pending) > 0 ? "⚠ Awaiting delivery" : "✓ All delivered"}
+        </div>
+      </div>
+      <div class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div>
+    </div>
+  `;
+  document.getElementById("statsUpdated").textContent = nowStr();
+}
+
+function renderOrders(orders, bodyId, cols = 9) {
+  if (!orders || orders.length === 0) {
+    document.getElementById(bodyId).innerHTML = `<tr><td colspan="${cols}"><div class="empty-state"><p>No orders found</p></div></td></tr>`;
+    return;
+  }
+  document.getElementById(bodyId).innerHTML = orders.map(o => `
+    <tr>
+      <td><strong>${unwrap(o.reference ?? o.ref, "—")}</strong></td>
+      <td>${unwrap(o.customer ?? o.name, "—")}</td>
+      <td>${unwrap(o.phone, "—")}</td>
+      <td>${unwrap(o.bundle_size ?? o.bundle, "—")}</td>
+      <td>${netTag(unwrap(o.network, "—"))}</td>
+      <td><strong>${Number(unwrap(o.amount, 0)).toFixed(2)}</strong></td>
+      <td>${unwrap(o.payment, "—")}</td>
+      <td>${badgeFor(unwrap(o.status ?? o.vtu_status, "unknown"))}</td>
+      <td style="color:var(--muted);font-size:12px">${timeAgo(unwrap(o.timestamp ?? o.created_at, null))}</td>
+    </tr>
+  `).join("");
+}
+
+function renderTransactions(txs) {
+  if (!txs || txs.length === 0) {
+    document.getElementById("txBody").innerHTML = `<tr><td colspan="7"><div class="empty-state"><p>No transactions found</p></div></td></tr>`;
+    return;
+  }
+  document.getElementById("txBody").innerHTML = txs.map(t => `
+    <tr>
+      <td><strong>${unwrap(t.transaction_id ?? t.txn_id ?? t.id, "—")}</strong></td>
+      <td>${unwrap(t.phone, "—")}</td>
+      <td><strong>${Number(unwrap(t.amount, 0)).toFixed(2)}</strong></td>
+      <td>${unwrap(t.bundle_size ?? t.bundle, "—")}</td>
+      <td>${badgeFor(unwrap(t.mtn_status ?? t.status, "unknown"))}</td>
+      <td style="font-size:12px">${unwrap(t.reference ?? t.ref, "—")}</td>
+      <td style="color:var(--muted);font-size:12px">${timeAgo(unwrap(t.created_at ?? t.timestamp, null))}</td>
+    </tr>
+  `).join("");
+  document.getElementById("txUpdated").textContent = nowStr();
+}
+
+function renderCustomers(custs) {
+  if (!custs || custs.length === 0) {
+    document.getElementById("custBody").innerHTML = `<tr><td colspan="6"><div class="empty-state"><p>No customers found</p></div></td></tr>`;
+    return;
+  }
+  document.getElementById("custBody").innerHTML = custs.map(c => `
+    <tr>
+      <td><strong>${unwrap(c.name ?? c.customer, "—")}</strong></td>
+      <td>${unwrap(c.phone, "—")}</td>
+      <td style="color:var(--muted)">${unwrap(c.email, "—")}</td>
+      <td>${unwrap(c.order_count ?? c.orders, 0)}</td>
+      <td><strong>GH₵ ${Number(unwrap(c.total_spent, 0)).toFixed(2)}</strong></td>
+      <td style="color:var(--muted);font-size:12px">${timeAgo(unwrap(c.last_order ?? c.last_order_date, null))}</td>
+    </tr>
+  `).join("");
+  document.getElementById("custUpdated").textContent = nowStr();
+}
+
+// ── REFRESH ───────────────────────────────────────────────
+async function refreshAll() {
+  setRefreshing(true);
   try {
-    const res = await fetch(ADMIN_CONFIG.WEBHOOK, {
-      method: "POST",
-      mode: "cors",
-      headers: {
-        "Content-Type": "application/json",
-        "Accept": "application/json"
-      },
-      body: JSON.stringify(body)
-    });
+    const data = await fetchAll();
+    cachedData = data;
 
-    const text = await res.text();
-    console.log("Webhook response text:", text);
+    const orders = Array.isArray(data) ? data : (data?.orders ?? data?.data ?? []);
+    const transactions = data?.transactions ?? [];
+    const customers = data?.customers ?? [];
 
-    if (res.status === 429) throw new Error("Rate limit exceeded on Make.com.");
+    renderStats(data);
+    renderOrders(orders, "dashOrdersBody");
+    renderOrders(orders, "ordersBody");
+    renderTransactions(transactions);
+    renderCustomers(customers);
 
-    if (!text || text.trim() === "") {
-      console.warn("Empty response payload — returning empty object.");
-      return {};
-    }
-
-    const trimmed = text.trim();
-    const isJSON = trimmed.startsWith("{") || trimmed.startsWith("[");
-
-    if (!isJSON) {
-      const lower = trimmed.toLowerCase();
-      if (lower.includes("too many requests")) throw new Error("Rate limit exceeded on Make.com.");
-      if (lower.includes("accepted")) {
-        console.warn("Make.com returned 'Accepted' — scenario may still be running.");
-        return {};
-      }
-      console.warn("Non-JSON response from Make.com:", trimmed.substring(0, 200));
-      return {};
-    }
-
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-
-    try {
-      return JSON.parse(text);
-    } catch (parseError) {
-      console.warn("Failed to parse JSON response:", parseError);
-      return {};
-    }
+    document.getElementById("ordersUpdated").textContent = nowStr();
 
   } catch (err) {
+    console.error("Failed to load data:", err);
     if (err instanceof TypeError) {
-      console.error("CORS or network failure — check Make.com response headers:", err);
+      document.getElementById("statsUpdated").textContent = "⚠ CORS error — fix Access-Control-Allow-Origin in Make.com";
     } else {
-      console.error("Webhook error:", err.message);
+      document.getElementById("statsUpdated").textContent = "⚠ " + err.message;
     }
-    throw err;
+  } finally {
+    setRefreshing(false);
   }
 }
 
-
-// Helper utility to pause execution thread slightly to bypass webhook rate-limits
-const delay = ms => new Promise(res => setTimeout(res, ms));
+function refreshCurrentPage() { refreshAll(); }
 
 // ── SPINNER ───────────────────────────────────────────────
 function setRefreshing(on) {
   const btn = document.getElementById("refreshBtn");
-  if (btn) {
-    btn.classList.toggle("spinning", on);
-    btn.disabled = on;
-  }
-}
-
-// ── LOAD STATS ────────────────────────────────────────────
-async function loadStats() {
-  try {
-    const data = await fetchWebhook({ action: "status" }) || {};
-
-    const remadataWallet = unwrap(data?.api_wallet_balance, "—");
-    const revenue        = unwrap(data?.total_revenue ?? data?.revenue, 0);
-    const orders         = unwrap(data?.total_orders ?? data?.orders, 0);
-    const customers      = unwrap(data?.total_customers ?? data?.customers, 0);
-    const pending        = unwrap(data?.pending_orders ?? data?.pending, 0);
-
-    const balanceNum = Number(remadataWallet);
-    const balanceColor = !isNaN(balanceNum) && balanceNum < 20 ? 'var(--red)' : 'inherit';
-
-    document.getElementById("statsGrid").innerHTML = `
-      <div class="stat-card">
-        <div class="stat-body">
-          <div class="stat-label">Remadata Balance</div>
-          <div class="stat-value" style="color: ${balanceColor}">GH₵ ${isNaN(balanceNum) ? remadataWallet : balanceNum.toFixed(2)}</div>
-          <div class="stat-change" style="color: ${balanceColor}">${!isNaN(balanceNum) && balanceNum < 20 ? '⚠ Low Balance' : '✓ Active'}</div>
-        </div>
-        <div class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="20" height="14" x="2" y="5" rx="2"/><line x1="2" x2="22" y1="10" y2="10"/></svg></div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-body">
-          <div class="stat-label">Total Revenue</div>
-          <div class="stat-value">GH₵ ${Number(revenue).toLocaleString()}</div>
-          <div class="stat-change">↑ Live from Make</div>
-        </div>
-        <div class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" x2="12" y1="2" y2="22"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-body">
-          <div class="stat-label">Total Orders</div>
-          <div class="stat-value">${Number(orders).toLocaleString()}</div>
-          <div class="stat-change">↑ Live from Make</div>
-        </div>
-        <div class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 21.73a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73z"/></svg></div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-body">
-          <div class="stat-label">Customers</div>
-          <div class="stat-value">${Number(customers).toLocaleString()}</div>
-          <div class="stat-change">↑ Live from Make</div>
-        </div>
-        <div class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg></div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-body">
-          <div class="stat-label">Pending Orders</div>
-          <div class="stat-value" style="color:${Number(pending) > 0 ? 'var(--yellow)' : 'inherit'}">${pending}</div>
-          <div class="stat-change" style="color:${Number(pending) > 0 ? 'var(--yellow)' : 'var(--green)'}">
-            ${Number(pending) > 0 ? '⚠ Awaiting delivery' : '✓ All delivered'}
-          </div>
-        </div>
-        <div class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div>
-      </div>
-    `;
-    document.getElementById("statsUpdated").textContent = nowStr();
-  } catch (e) {
-    console.warn("Stats load failed:", e);
-    document.getElementById("statsUpdated").textContent = "⚠ Rate limited or could not parse dataset";
-  }
-}
-
-// ── LOAD ORDERS ───────────────────────────────────────────
-async function loadOrders(targetBodyId) {
-  try {
-    const data = await fetchWebhook({ action: "get_orders" }) || {};
-    
-    // Check if the base object is an array, or look into the standard dictionary wrappers
-    const orders = Array.isArray(data) ? data : (data?.orders || data?.data || []);
-
-    if (!orders || orders.length === 0) {
-      document.getElementById(targetBodyId).innerHTML = `<tr><td colspan="9"><div class="empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M11 21.73a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73z"/></svg><p>No orders found yet</p></div></td></tr>`;
-      return;
-    }
-
-    const rows = orders.map(o => {
-      // Safely unwrap data layers regardless of if they are deep array matrices or single strings
-      const ref = unwrap(o.reference ?? o.ref, "—");
-      const cust = unwrap(o.customer ?? o.name, "—");
-      const phone = unwrap(o.phone, "—");
-      const bundle = unwrap(o.bundle_size ?? o.bundle, "—");
-      const net = unwrap(o.network, "—");
-      const amt = unwrap(o.amount, 0);
-      const pay = unwrap(o.payment, "—");
-      const stat = unwrap(o.status ?? o.vtu_status, "unknown");
-      const time = unwrap(o.timestamp ?? o.created_at, null);
-
-      return `
-        <tr>
-          <td><strong>${ref}</strong></td>
-          <td>${cust}</td>
-          <td>${phone}</td>
-          <td>${bundle}</td>
-          <td>${netTag(net)}</td>
-          <td><strong>${isNaN(Number(amt)) ? amt : Number(amt).toFixed(2)}</strong></td>
-          <td>${pay}</td>
-          <td>${badgeFor(stat)}</td>
-          <td style="color:var(--muted);font-size:12px">${timeAgo(time)}</td>
-        </tr>
-      `;
-    }).join("");
-
-    document.getElementById(targetBodyId).innerHTML = rows;
-  } catch (e) {
-    document.getElementById(targetBodyId).innerHTML = `<tr><td colspan="9" style="color:var(--red);font-size:13px;padding:16px">⚠ Failed to process layout — parsing validation error</td></tr>`;
-    console.warn("Orders load failed:", e);
-  }
-}
-
-// ── LOAD TRANSACTIONS ─────────────────────────────────────
-async function loadTransactions() {
-  try {
-    const data = await fetchWebhook({ action: "get_transactions" }) || {};
-    const txs = Array.isArray(data) ? data : (data.transactions || data.data || []);
-
-    if (txs.length === 0) {
-      document.getElementById("txBody").innerHTML = `<tr><td colspan="7"><div class="empty-state"><p>No transaction history</p></div></td></tr>`;
-      return;
-    }
-
-    document.getElementById("txBody").innerHTML = txs.map(t => `
-      <tr>
-        <td><strong>${unwrap(t.transaction_id ?? t.txn_id ?? t.id, "—")}</strong></td>
-        <td>${unwrap(t.phone, "—")}</td>
-        <td><strong>${Number(unwrap(t.amount, 0)).toFixed(2)}</strong></td>
-        <td>${unwrap(t.bundle_size ?? t.bundle, "—")}</td>
-        <td>${badgeFor(unwrap(t.mtn_status ?? t.status, "unknown"))}</td>
-        <td style="font-size:12px">${unwrap(t.reference ?? t.ref, "—")}</td>
-        <td style="color:var(--muted);font-size:12px">${timeAgo(unwrap(t.created_at ?? t.timestamp, null))}</td>
-      </tr>
-    `).join("");
-    document.getElementById("txUpdated").textContent = nowStr();
-  } catch (e) {
-    document.getElementById("txBody").innerHTML = `<tr><td colspan="7" style="color:var(--red);font-size:13px;padding:16px">⚠ Failed to sync transaction database tables</td></tr>`;
-    console.warn("Transactions load failed:", e);
-  }
-}
-
-// ── LOAD CUSTOMERS ────────────────────────────────────────
-async function loadCustomers() {
-  try {
-    const data = await fetchWebhook({ action: "get_customers" }) || {};
-    const custs = Array.isArray(data) ? data : (data.customers || data.data || []);
-
-    if (custs.length === 0) {
-      document.getElementById("custBody").innerHTML = `<tr><td colspan="6"><div class="empty-state"><p>No customers found</p></div></td></tr>`;
-      return;
-    }
-
-    document.getElementById("custBody").innerHTML = custs.map(c => `
-      <tr>
-        <td><strong>${unwrap(c.name ?? c.customer, "—")}</strong></td>
-        <td>${unwrap(c.phone, "—")}</td>
-        <td style="color:var(--muted)">${unwrap(c.email, "—")}</td>
-        <td>${unwrap(c.order_count ?? c.orders, 0)}</td>
-        <td><strong>GH₵ ${Number(unwrap(c.total_spent, 0)).toFixed(2)}</strong></td>
-        <td style="color:var(--muted);font-size:12px">${timeAgo(unwrap(c.last_order ?? c.last_order_date, null))}</td>
-      </tr>
-    `).join("");
-    document.getElementById("custUpdated").textContent = nowStr();
-  } catch (e) {
-    document.getElementById("custBody").innerHTML = `<tr><td colspan="6" style="color:var(--red);font-size:13px;padding:16px">⚠ Failed to sync customer profiles</td></tr>`;
-    console.warn("Customers load failed:", e);
-  }
+  if (btn) { btn.classList.toggle("spinning", on); btn.disabled = on; }
 }
 
 // ── NAVIGATION ────────────────────────────────────────────
@@ -624,30 +548,6 @@ function navigate(page) {
   document.querySelectorAll(".page").forEach(p => p.classList.toggle("active", p.id === "page-" + page));
   if (window.innerWidth <= 1024) closeSidebar();
   window.scrollTo({ top: 0, behavior: "smooth" });
-  refreshCurrentPage();
-}
-
-async function refreshCurrentPage() {
-  setRefreshing(true);
-  try {
-    if (currentPage === "dashboard") {
-      // Execute layout loading sequentially with a small delay gap to stay clear of Make rate limits
-      await loadStats();
-      await delay(600); 
-      await loadOrders("dashOrdersBody");
-    } else if (currentPage === "orders") {
-      await loadOrders("ordersBody");
-      document.getElementById("ordersUpdated").textContent = nowStr();
-    } else if (currentPage === "transactions") {
-      await loadTransactions();
-    } else if (currentPage === "customers") {
-      await loadCustomers();
-    }
-  } catch (globalErr) {
-    console.error("Global system refreshing event failed:", globalErr);
-  } finally {
-    setRefreshing(false);
-  }
 }
 
 // ── SIDEBAR ───────────────────────────────────────────────
@@ -655,14 +555,11 @@ function openSidebar()  { document.getElementById("sidebar").classList.add("open
 function closeSidebar() { document.getElementById("sidebar").classList.remove("open"); document.getElementById("overlay").classList.remove("open"); document.body.style.overflow = ""; }
 
 // ── AUTO REFRESH ──────────────────────────────────────────
-if (ADMIN_CONFIG.AUTO_REFRESH_SECONDS > 0) {
-  setInterval(refreshCurrentPage, ADMIN_CONFIG.AUTO_REFRESH_SECONDS * 1000);
-}
+setInterval(refreshAll, 120 * 1000);
 
 // ── BOOT ──────────────────────────────────────────────────
-document.addEventListener("DOMContentLoaded", () => {
-  refreshCurrentPage();
-});
+document.addEventListener("DOMContentLoaded", refreshAll);
+
 </script>
 
 </body>
