@@ -330,7 +330,7 @@ const ADMIN_CONFIG = {
     TRANSACTIONS_WEBHOOK: "https://hook.us2.make.com/pfjsqrsfwoavl4rymqn3vvi2johjh6v8",
     CUSTOMERS_WEBHOOK:  "https://hook.us2.make.com/pfjsqrsfwoavl4rymqn3vvi2johjh6v8",
     STATS_WEBHOOK:   "https://hook.us2.make.com/pfjsqrsfwoavl4rymqn3vvi2johjh6v8",
-    AUTO_REFRESH_SECONDS: 30
+    AUTO_REFRESH_SECONDS: 120
 };
 
 // ── HELPERS ──────────────────────────────────────────────
@@ -364,6 +364,7 @@ function timeAgo(dateStr) {
 function nowStr() { return "Updated " + new Date().toLocaleTimeString(); }
 
 // ── FETCH WRAPPER ─────────────────────────────────────────
+
 async function fetchWebhook(url, body) {
   try {
     const res = await fetch(url, {
@@ -377,12 +378,21 @@ async function fetchWebhook(url, body) {
     const text = await res.text();
     console.log("Webhook response:", text);
 
+    // 1. Intercept Rate Limits (429) or Server Errors (500) smoothly
     if (!res.ok) {
+      if (res.status === 429) {
+        throw new Error("Rate limit exceeded. Too many requests to Make.com.");
+      }
       throw new Error(`HTTP ${res.status}`);
     }
 
-    if (!text) {
+    if (!text || text.trim() === "") {
       throw new Error("Empty response");
+    }
+
+    // 2. Safely verify if response contains legitimate text-based errors
+    if (text.toLowerCase().includes("too many requests") || text.toLowerCase().includes("error")) {
+      throw new Error(`Make.com Error Response: ${text}`);
     }
 
     try {
@@ -393,8 +403,8 @@ async function fetchWebhook(url, body) {
     }
 
   } catch (err) {
-    console.error("Webhook error:", err);
-    throw err;
+    console.error("Webhook network/server error:", err);
+    throw err; // Pushes exception down cleanly to individual component catch blocks
   }
 }
 
@@ -473,6 +483,7 @@ async function loadStats() {
 }
 
 // ── LOAD ORDERS ───────────────────────────────────────────
+
 async function loadOrders(targetBodyId) {
   try {
     const data = await fetchWebhook(ADMIN_CONFIG.ORDERS_WEBHOOK, { action: "get_orders" }) || {};
@@ -484,24 +495,37 @@ async function loadOrders(targetBodyId) {
       return;
     }
 
-    const rows = orders.map(o => `
-      <tr>
-        <td><strong>${o.reference || o.ref || "—"}</strong></td>
-        <td>${o.customer || o.name || "—"}</td>
-        <td>${o.phone || "—"}</td>
-        <td>${o.bundle_size || o.bundle || "—"}</td>
-        <td>${netTag(o.network)}</td>
-        <td><strong>${Number(o.amount || 0).toFixed(2)}</strong></td>
-        <td>${o.payment || "—"}</td>
-        <td>${badgeFor(o.status || o.vtu_status)}</td>
-        <td style="color:var(--muted);font-size:12px">${timeAgo(o.timestamp || o.created_at)}</td>
-      </tr>
-    `).join("");
+    const rows = orders.map(o => {
+      // Unpack values cleanly if Make passes them as single-item data arrays
+      const ref = Array.isArray(o.reference) ? o.reference[0] : (o.reference || o.ref || "—");
+      const cust = Array.isArray(o.customer) ? o.customer[0] : (o.customer || o.name || "—");
+      const phone = Array.isArray(o.phone) ? o.phone[0] : (o.phone || "—");
+      const bundle = Array.isArray(o.bundle_size) ? o.bundle_size[0] : (o.bundle_size || o.bundle || "—");
+      const net = Array.isArray(o.network) ? o.network[0] : (o.network || "—");
+      const amt = Array.isArray(o.amount) ? o.amount[0] : (o.amount || 0);
+      const pay = Array.isArray(o.payment) ? o.payment[0] : (o.payment || "—");
+      const stat = Array.isArray(o.status) ? o.status[0] : (o.status || o.vtu_status || "unknown");
+      const time = Array.isArray(o.timestamp) ? o.timestamp[0] : (o.timestamp || o.created_at);
+
+      return `
+        <tr>
+          <td><strong>${ref}</strong></td>
+          <td>${cust}</td>
+          <td>${phone}</td>
+          <td>${bundle}</td>
+          <td>${netTag(net)}</td>
+          <td><strong>${Number(amt).toFixed(2)}</strong></td>
+          <td>${pay}</td>
+          <td>${badgeFor(stat)}</td>
+          <td style="color:var(--muted);font-size:12px">${timeAgo(time)}</td>
+        </tr>
+      `;
+    }).join("");
 
     document.getElementById(targetBodyId).innerHTML = rows;
   } catch (e) {
     document.getElementById(targetBodyId).innerHTML =
-      `<tr><td colspan="9" style="color:var(--red);font-size:13px;padding:16px">⚠ Failed to load — check ORDERS_WEBHOOK URL in config</td></tr>`;
+      `<tr><td colspan="9" style="color:var(--red);font-size:13px;padding:16px">⚠ Failed to load — check webhook parameters</td></tr>`;
     console.warn("Orders load failed:", e);
   }
 }
