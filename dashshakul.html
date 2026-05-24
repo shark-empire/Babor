@@ -530,17 +530,32 @@ function renderCustomers(custs) {
 }
 
 // ── REFRESH ───────────────────────────────────────────────
+
 async function refreshAll() {
   setRefreshing(true);
   try {
     const data = await fetchAll();
     cachedData = data;
 
+    // 1. Safely extract the order data depending on how Make.com structures it
+    let orders = [];
+    if (Array.isArray(data)) {
+      orders = data;
+    } else if (data && Array.isArray(data.orders)) {
+      orders = data.orders;
+    } else if (data && Array.isArray(data.data)) {
+      orders = data.data;
+    } else if (data && typeof data === 'object' && Object.keys(data).length > 0) {
+      // CRITICAL FIX: If it's a single order object, wrap it into a 1-item array
+      orders = [data];
+    }
+
+    // 2. Safely extract stats source
     const statsSource = Array.isArray(data) ? (data[0] || {}) : data;
-    const orders = Array.isArray(data) ? data : (data?.orders ?? data?.data ?? []);
     const transactions = data?.transactions ?? [];
     const customers = data?.customers ?? [];
 
+    // 3. Render everything safely
     renderStats(statsSource);
     renderDashOrders(orders); 
     renderMainOrders(orders); 
