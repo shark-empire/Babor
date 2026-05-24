@@ -333,6 +333,16 @@
 </div>
 
 <script>
+
+const ADMIN_CONFIG = {
+    ORDERS_WEBHOOK:       "https://hook.us2.make.com/pfjsqrsfwoavl4rymqn3vvi2johjh6v8", // Pasted your URL here
+    TRANSACTIONS_WEBHOOK: "https://hook.us2.make.com/pfjsqrsfwoavl4rymqn3vvi2johjh6v8",
+    CUSTOMERS_WEBHOOK:    "https://hook.us2.make.com/pfjsqrsfwoavl4rymqn3vvi2johjh6v8",
+    STATS_WEBHOOK:        "https://hook.us2.make.com/pfjsqrsfwoavl4rymqn3vvi2johjh6v8",
+    AUTO_REFRESH_SECONDS: 30
+};
+
+ 
 // ── HELPERS ──────────────────────────────────────────────
 function badgeFor(status) {
   const s = (status || "unknown").toLowerCase();
@@ -364,8 +374,9 @@ function timeAgo(dateStr) {
 function nowStr() { return "Updated " + new Date().toLocaleTimeString(); }
 
 // ── FETCH WRAPPER ─────────────────────────────────────────
+
 async function fetchWebhook(url, body) {
-  const res = await fetch(url, {'https://hook.us2.make.com/pfjsqrsfwoavl4rymqn3vvi2johjh6v8',
+  const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body)
