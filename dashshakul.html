@@ -325,16 +325,14 @@
 </div>
 
 <script>
-
 const ADMIN_CONFIG = {
     ORDERS_WEBHOOK:  "https://hook.us2.make.com/pfjsqrsfwoavl4rymqn3vvi2johjh6v8",
     TRANSACTIONS_WEBHOOK: "https://hook.us2.make.com/pfjsqrsfwoavl4rymqn3vvi2johjh6v8",
     CUSTOMERS_WEBHOOK:  "https://hook.us2.make.com/pfjsqrsfwoavl4rymqn3vvi2johjh6v8",
     STATS_WEBHOOK:   "https://hook.us2.make.com/pfjsqrsfwoavl4rymqn3vvi2johjh6v8",
     AUTO_REFRESH_SECONDS: 30
-  };
+};
 
- 
 // ── HELPERS ──────────────────────────────────────────────
 function badgeFor(status) {
   const s = (status || "unknown").toLowerCase();
@@ -366,7 +364,6 @@ function timeAgo(dateStr) {
 function nowStr() { return "Updated " + new Date().toLocaleTimeString(); }
 
 // ── FETCH WRAPPER ─────────────────────────────────────────
-
 async function fetchWebhook(url, body) {
   try {
     const res = await fetch(url, {
@@ -378,7 +375,6 @@ async function fetchWebhook(url, body) {
     });
 
     const text = await res.text();
-
     console.log("Webhook response:", text);
 
     if (!res.ok) {
@@ -389,15 +385,12 @@ async function fetchWebhook(url, body) {
       throw new Error("Empty response");
     }
 
-        try {
-
+    try {
       return JSON.parse(text);
-
-    } catch {
-
-      console.warn("Response is not JSON");
-
+    } catch (parseError) {
+      console.warn("Response is not JSON:", parseError);
       return {};
+    }
 
   } catch (err) {
     console.error("Webhook error:", err);
@@ -408,17 +401,17 @@ async function fetchWebhook(url, body) {
 // ── SPINNER ───────────────────────────────────────────────
 function setRefreshing(on) {
   const btn = document.getElementById("refreshBtn");
-  btn.classList.toggle("spinning", on);
-  btn.disabled = on;
+  if (btn) {
+    btn.classList.toggle("spinning", on);
+    btn.disabled = on;
+  }
 }
 
 // ── LOAD STATS ────────────────────────────────────────────
-
 async function loadStats() {
   try {
-    const data = await fetchWebhook(ADMIN_CONFIG.STATS_WEBHOOK, { action: "status" }) || {}; // Fallback to empty object if null
+    const data = await fetchWebhook(ADMIN_CONFIG.STATS_WEBHOOK, { action: "status" }) || {};
 
-    // Safely check properties
     const remadataWallet = data?.api_wallet_balance ?? "—";
     const revenue        = data?.total_revenue      ?? data?.revenue   ?? 0;
     const orders         = data?.total_orders       ?? data?.orders    ?? 0;
@@ -480,11 +473,9 @@ async function loadStats() {
 }
 
 // ── LOAD ORDERS ───────────────────────────────────────────
-
 async function loadOrders(targetBodyId) {
   try {
     const data = await fetchWebhook(ADMIN_CONFIG.ORDERS_WEBHOOK, { action: "get_orders" }) || {};
-    // Fallback gracefully if data or orders is missing/null
     const orders = Array.isArray(data) ? data : (data?.orders || data?.data || []);
 
     if (!orders || orders.length === 0) {
@@ -518,7 +509,7 @@ async function loadOrders(targetBodyId) {
 // ── LOAD TRANSACTIONS ─────────────────────────────────────
 async function loadTransactions() {
   try {
-    const data = await fetchWebhook(ADMIN_CONFIG.TRANSACTIONS_WEBHOOK, { action: "get_transactions" });
+    const data = await fetchWebhook(ADMIN_CONFIG.TRANSACTIONS_WEBHOOK, { action: "get_transactions" }) || {};
     const txs = Array.isArray(data) ? data : (data.transactions || data.data || []);
 
     if (txs.length === 0) {
@@ -549,7 +540,7 @@ async function loadTransactions() {
 // ── LOAD CUSTOMERS ────────────────────────────────────────
 async function loadCustomers() {
   try {
-    const data = await fetchWebhook(ADMIN_CONFIG.CUSTOMERS_WEBHOOK, { action: "get_customers" });
+    const data = await fetchWebhook(ADMIN_CONFIG.CUSTOMERS_WEBHOOK, { action: "get_customers" }) || {};
     const custs = Array.isArray(data) ? data : (data.customers || data.data || []);
 
     if (custs.length === 0) {
@@ -604,6 +595,8 @@ async function refreshCurrentPage() {
     } else if (currentPage === "customers") {
       await loadCustomers();
     }
+  } catch (globalErr) {
+    console.error("Global refresh failure:", globalErr);
   } finally {
     setRefreshing(false);
   }
@@ -619,7 +612,10 @@ if (ADMIN_CONFIG.AUTO_REFRESH_SECONDS > 0) {
 }
 
 // ── BOOT ──────────────────────────────────────────────────
-refreshCurrentPage();
+document.addEventListener("DOMContentLoaded", () => {
+  refreshCurrentPage();
+});
 </script>
+
 </body>
 </html>
