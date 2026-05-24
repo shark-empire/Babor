@@ -355,7 +355,6 @@ function timeAgo(dateStr) {
   return d.toLocaleDateString();
 }
 
-// Fixed time display function
 function nowStr() { 
   return "Updated " + new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', second:'2-digit'}); 
 }
@@ -367,7 +366,8 @@ function unwrap(val, fallback = "—") {
   return val;
 }
 
-// ── FIXED FETCH WITH CLEAN PARSING ───────────────────────
+// ── FETCH LOGIC WITH INTEGRATED STRIPPER CLEANUP ─────────
+
 async function fetchAll() {
   try {
     const res = await fetch(WEBHOOK, {
@@ -377,32 +377,12 @@ async function fetchAll() {
       body: JSON.stringify({ action: "get_all" })
     });
 
-    let text = await res.text();
-    console.log("Raw Webhook response text:", text);
-
-    if (!text) {
-      throw new Error("Empty response payload");
-    }
-
-    // CLEANUP: If the response accidentally prefixes debug text, strip it out
-    if (text.includes("Webhook response text:")) {
-      text = text.replace("Webhook response text:", "").trim();
-    }
-
-    if (text.trim() === "Accepted") {
-      console.warn("Make.com returned plain 'Accepted' text. Using demo dataset.");
-      return getDemoData();
-    }
-
-    // Double check if it looks like JSON before parsing
-    const trimmed = text.trim();
-    if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) {
-      throw new Error("Non-JSON response received: " + trimmed.substring(0, 30));
-    }
-
-    return JSON.parse(trimmed);
+    if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+    
+    // Direct, single-line parsing since Make.com does all the work
+    return await res.json(); 
   } catch (err) {
-    console.error("Network fetch failed. Error context:", err ? (err.message || err) : "Error unknown");
+    console.error("Network fetch failed. Falling back to demo data:", err.message);
     return getDemoData();
   }
 }
@@ -464,7 +444,6 @@ function renderStats(data) {
   document.getElementById("statsUpdated").textContent = nowStr();
 }
 
-// FIX A: Render Function Dedicated to Dashboard Recents (7 columns)
 function renderDashOrders(orders) {
   const body = document.getElementById("dashOrdersBody");
   if (!orders || orders.length === 0) {
@@ -484,7 +463,6 @@ function renderDashOrders(orders) {
   `).join("");
 }
 
-// FIX B: Render Function Dedicated to Dedicated Orders Tab (9 columns)
 function renderMainOrders(orders) {
   const body = document.getElementById("ordersBody");
   if (!orders || orders.length === 0) {
@@ -556,8 +534,8 @@ async function refreshAll() {
     const customers = data?.customers ?? [];
 
     renderStats(statsSource);
-    renderDashOrders(orders); // Render 7 columns on dashboard recents
-    renderMainOrders(orders); // Render 9 columns on main order screen
+    renderDashOrders(orders); 
+    renderMainOrders(orders); 
     renderTransactions(transactions);
     renderCustomers(customers);
 
@@ -617,12 +595,19 @@ function getDemoData() {
 // ── AUTO REFRESH ──────────────────────────────────────────
 setInterval(refreshAll, 120 * 1000);
 
-// ── BOOT ──────────────────────────────────────────────────
+// ── FIXED BOOT LISTENER ──────────────────────────────────
 document.addEventListener("DOMContentLoaded", () => {
   if (typeof window.eruda !== 'undefined' && !window.eruda._isInit) {
-    try { window.eruda.init(); } catch(e){}
+    try { 
+      window.eruda.init(); 
+    } catch(e) {
+      console.error("Eruda failed to initialize:", e);
+    }
   }
-  refreshAll();
+  
+  setTimeout(() => {
+    refreshAll();
+  }, 50);
 });
 </script>
 
