@@ -325,13 +325,12 @@
 </div>
 
 <script>
+
 const ADMIN_CONFIG = {
-    ORDERS_WEBHOOK:  "https://hook.us2.make.com/pfjsqrsfwoavl4rymqn3vvi2johjh6v8",
-    TRANSACTIONS_WEBHOOK: "https://hook.us2.make.com/pfjsqrsfwoavl4rymqn3vvi2johjh6v8",
-    CUSTOMERS_WEBHOOK:  "https://hook.us2.make.com/pfjsqrsfwoavl4rymqn3vvi2johjh6v8",
-    STATS_WEBHOOK:   "https://hook.us2.make.com/pfjsqrsfwoavl4rymqn3vvi2johjh6v8",
+    WEBHOOK: "https://hook.us2.make.com/pfjsqrsfwoavl4rymqn3vvi2johjh6v8",
     AUTO_REFRESH_SECONDS: 120
 };
+
 
 // ── HELPERS ──────────────────────────────────────────────
 function badgeFor(status) {
@@ -378,12 +377,15 @@ function unwrap(val, fallback = "—") {
 }
 
 // ── FETCH WRAPPER ─────────────────────────────────────────
-async function fetchWebhook(url, body) {
+
+async function fetchWebhook(body) {
   try {
-    const res = await fetch(url, {
+    const res = await fetch(ADMIN_CONFIG.WEBHOOK, {
       method: "POST",
+      mode: "cors",
       headers: {
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        "Accept": "application/json"
       },
       body: JSON.stringify(body)
     });
@@ -391,34 +393,46 @@ async function fetchWebhook(url, body) {
     const text = await res.text();
     console.log("Webhook response text:", text);
 
-    if (!res.ok) {
-      if (res.status === 429) throw new Error("Rate limit exceeded on Make.com.");
-      throw new Error(`HTTP ${res.status}`);
-    }
+    if (res.status === 429) throw new Error("Rate limit exceeded on Make.com.");
 
     if (!text || text.trim() === "") {
-      throw new Error("Empty response payload");
+      console.warn("Empty response payload — returning empty object.");
+      return {};
     }
 
-    if (text.toLowerCase().includes("too many requests") || text.toLowerCase().includes("accepted")) {
-      // Make sometimes returns a text string explaining execution status instead of JSON
-      if (!text.trim().startsWith("{") && !text.trim().startsWith("[")) {
-        throw new Error(`Make.com Status Message: ${text}`);
+    const trimmed = text.trim();
+    const isJSON = trimmed.startsWith("{") || trimmed.startsWith("[");
+
+    if (!isJSON) {
+      const lower = trimmed.toLowerCase();
+      if (lower.includes("too many requests")) throw new Error("Rate limit exceeded on Make.com.");
+      if (lower.includes("accepted")) {
+        console.warn("Make.com returned 'Accepted' — scenario may still be running.");
+        return {};
       }
+      console.warn("Non-JSON response from Make.com:", trimmed.substring(0, 200));
+      return {};
     }
+
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
     try {
       return JSON.parse(text);
     } catch (parseError) {
-      console.warn("Response payload is not valid JSON string:", parseError);
+      console.warn("Failed to parse JSON response:", parseError);
       return {};
     }
 
   } catch (err) {
-    console.error("Webhook network error processing request:", err);
+    if (err instanceof TypeError) {
+      console.error("CORS or network failure — check Make.com response headers:", err);
+    } else {
+      console.error("Webhook error:", err.message);
+    }
     throw err;
   }
 }
+
 
 // Helper utility to pause execution thread slightly to bypass webhook rate-limits
 const delay = ms => new Promise(res => setTimeout(res, ms));
@@ -435,7 +449,7 @@ function setRefreshing(on) {
 // ── LOAD STATS ────────────────────────────────────────────
 async function loadStats() {
   try {
-    const data = await fetchWebhook(ADMIN_CONFIG.STATS_WEBHOOK, { action: "status" }) || {};
+    const data = await fetchWebhook({ action: "status" }) || {};
 
     const remadataWallet = unwrap(data?.api_wallet_balance, "—");
     const revenue        = unwrap(data?.total_revenue ?? data?.revenue, 0);
@@ -500,7 +514,7 @@ async function loadStats() {
 // ── LOAD ORDERS ───────────────────────────────────────────
 async function loadOrders(targetBodyId) {
   try {
-    const data = await fetchWebhook(ADMIN_CONFIG.ORDERS_WEBHOOK, { action: "get_orders" }) || {};
+    const data = await fetchWebhook({ action: "get_orders" }) || {};
     
     // Check if the base object is an array, or look into the standard dictionary wrappers
     const orders = Array.isArray(data) ? data : (data?.orders || data?.data || []);
@@ -547,7 +561,7 @@ async function loadOrders(targetBodyId) {
 // ── LOAD TRANSACTIONS ─────────────────────────────────────
 async function loadTransactions() {
   try {
-    const data = await fetchWebhook(ADMIN_CONFIG.TRANSACTIONS_WEBHOOK, { action: "get_transactions" }) || {};
+    const data = await fetchWebhook({ action: "get_transactions" }) || {};
     const txs = Array.isArray(data) ? data : (data.transactions || data.data || []);
 
     if (txs.length === 0) {
@@ -576,7 +590,7 @@ async function loadTransactions() {
 // ── LOAD CUSTOMERS ────────────────────────────────────────
 async function loadCustomers() {
   try {
-    const data = await fetchWebhook(ADMIN_CONFIG.CUSTOMERS_WEBHOOK, { action: "get_customers" }) || {};
+    const data = await fetchWebhook({ action: "get_customers" }) || {};
     const custs = Array.isArray(data) ? data : (data.customers || data.data || []);
 
     if (custs.length === 0) {
