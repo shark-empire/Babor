@@ -367,7 +367,7 @@ function unwrap(val, fallback = "—") {
   return val;
 }
 
-// ── SINGLE FETCH WITH DEMO FALLBACK ───────────────────────
+// ── FIXED FETCH WITH CLEAN PARSING ───────────────────────
 async function fetchAll() {
   try {
     const res = await fetch(WEBHOOK, {
@@ -377,21 +377,32 @@ async function fetchAll() {
       body: JSON.stringify({ action: "get_all" })
     });
 
-    const text = await res.text();
-    console.log("Webhook response text:", text);
+    let text = await res.text();
+    console.log("Raw Webhook response text:", text);
 
-    if (text && text.trim() === "Accepted") {
+    if (!text) {
+      throw new Error("Empty response payload");
+    }
+
+    // CLEANUP: If the response accidentally prefixes debug text, strip it out
+    if (text.includes("Webhook response text:")) {
+      text = text.replace("Webhook response text:", "").trim();
+    }
+
+    if (text.trim() === "Accepted") {
       console.warn("Make.com returned plain 'Accepted' text. Using demo dataset.");
       return getDemoData();
     }
 
-    if (!text || (!text.trim().startsWith("{") && !text.trim().startsWith("["))) {
-      throw new Error("Non-JSON response received");
+    // Double check if it looks like JSON before parsing
+    const trimmed = text.trim();
+    if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) {
+      throw new Error("Non-JSON response received: " + trimmed.substring(0, 30));
     }
 
-    return JSON.parse(text);
+    return JSON.parse(trimmed);
   } catch (err) {
-    console.error("Network fetch failed. Error context:", err ? (err.message || err) : "Empty response payload");
+    console.error("Network fetch failed. Error context:", err ? (err.message || err) : "Error unknown");
     return getDemoData();
   }
 }
