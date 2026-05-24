@@ -370,12 +370,13 @@ function unwrap(val, fallback = "—") {
 
 async function fetchAll() {
   try {
-    // We append a cache-buster timestamp so Safari doesn't cache old data
-    const urlWithCacheBuster = `${WEBHOOK}?action=get_all&_cb=${Date.now()}`;
+    // Cache-buster ensures Safari doesn't save a broken "Load failed" state
+    const urlWithCacheBuster = `${WEBHOOK}?_cb=${Date.now()}`;
     
     const res = await fetch(urlWithCacheBuster, {
       method: "GET",
-      headers: { "Accept": "application/json" }
+      mode: "cors", 
+      credentials: "omit" // Tells Safari not to block over cookie/credential checks
     });
 
     if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
