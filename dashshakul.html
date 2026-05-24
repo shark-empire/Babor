@@ -389,7 +389,15 @@ async function fetchWebhook(url, body) {
       throw new Error("Empty response");
     }
 
-    return JSON.parse(text);
+        try {
+
+      return JSON.parse(text);
+
+    } catch {
+
+      console.warn("Response is not JSON");
+
+      return {};
 
   } catch (err) {
     console.error("Webhook error:", err);
