@@ -354,6 +354,7 @@ function netTag(network) {
 function timeAgo(dateStr) {
   if (!dateStr) return "—";
   const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return dateStr; // Return raw string if formatting fails
   const diff = (Date.now() - d) / 1000;
   if (diff < 60)   return Math.round(diff) + "s ago";
   if (diff < 3600) return Math.round(diff/60) + "m ago";
@@ -363,8 +364,20 @@ function timeAgo(dateStr) {
 
 function nowStr() { return "Updated " + new Date().toLocaleTimeString(); }
 
-// ── FETCH WRAPPER ─────────────────────────────────────────
+// Utility helper to unwrap nested properties coming from Make arrays safely
+function unwrap(val, fallback = "—") {
+  if (val === null || val === undefined) return fallback;
+  if (Array.isArray(val)) {
+    return val.length > 0 ? unwrap(val[0], fallback) : fallback;
+  }
+  if (typeof val === 'object') {
+    // If it's a nested object, look for known common nested keys or stringify
+    return val.name || val.value || fallback;
+  }
+  return val;
+}
 
+// ── FETCH WRAPPER ─────────────────────────────────────────
 async function fetchWebhook(url, body) {
   try {
     const res = await fetch(url, {
@@ -376,37 +389,39 @@ async function fetchWebhook(url, body) {
     });
 
     const text = await res.text();
-    console.log("Webhook response:", text);
+    console.log("Webhook response text:", text);
 
-    // 1. Intercept Rate Limits (429) or Server Errors (500) smoothly
     if (!res.ok) {
-      if (res.status === 429) {
-        throw new Error("Rate limit exceeded. Too many requests to Make.com.");
-      }
+      if (res.status === 429) throw new Error("Rate limit exceeded on Make.com.");
       throw new Error(`HTTP ${res.status}`);
     }
 
     if (!text || text.trim() === "") {
-      throw new Error("Empty response");
+      throw new Error("Empty response payload");
     }
 
-    // 2. Safely verify if response contains legitimate text-based errors
-    if (text.toLowerCase().includes("too many requests") || text.toLowerCase().includes("error")) {
-      throw new Error(`Make.com Error Response: ${text}`);
+    if (text.toLowerCase().includes("too many requests") || text.toLowerCase().includes("accepted")) {
+      // Make sometimes returns a text string explaining execution status instead of JSON
+      if (!text.trim().startsWith("{") && !text.trim().startsWith("[")) {
+        throw new Error(`Make.com Status Message: ${text}`);
+      }
     }
 
     try {
       return JSON.parse(text);
     } catch (parseError) {
-      console.warn("Response is not JSON:", parseError);
+      console.warn("Response payload is not valid JSON string:", parseError);
       return {};
     }
 
   } catch (err) {
-    console.error("Webhook network/server error:", err);
-    throw err; // Pushes exception down cleanly to individual component catch blocks
+    console.error("Webhook network error processing request:", err);
+    throw err;
   }
 }
+
+// Helper utility to pause execution thread slightly to bypass webhook rate-limits
+const delay = ms => new Promise(res => setTimeout(res, ms));
 
 // ── SPINNER ───────────────────────────────────────────────
 function setRefreshing(on) {
@@ -422,11 +437,11 @@ async function loadStats() {
   try {
     const data = await fetchWebhook(ADMIN_CONFIG.STATS_WEBHOOK, { action: "status" }) || {};
 
-    const remadataWallet = data?.api_wallet_balance ?? "—";
-    const revenue        = data?.total_revenue      ?? data?.revenue   ?? 0;
-    const orders         = data?.total_orders       ?? data?.orders    ?? 0;
-    const customers      = data?.total_customers    ?? data?.customers ?? 0;
-    const pending        = data?.pending_orders     ?? data?.pending   ?? 0;
+    const remadataWallet = unwrap(data?.api_wallet_balance, "—");
+    const revenue        = unwrap(data?.total_revenue ?? data?.revenue, 0);
+    const orders         = unwrap(data?.total_orders ?? data?.orders, 0);
+    const customers      = unwrap(data?.total_customers ?? data?.customers, 0);
+    const pending        = unwrap(data?.pending_orders ?? data?.pending, 0);
 
     const balanceNum = Number(remadataWallet);
     const balanceColor = !isNaN(balanceNum) && balanceNum < 20 ? 'var(--red)' : 'inherit';
@@ -478,34 +493,34 @@ async function loadStats() {
     document.getElementById("statsUpdated").textContent = nowStr();
   } catch (e) {
     console.warn("Stats load failed:", e);
-    document.getElementById("statsUpdated").textContent = "⚠ Could not load — check webhook URL";
+    document.getElementById("statsUpdated").textContent = "⚠ Rate limited or could not parse dataset";
   }
 }
 
 // ── LOAD ORDERS ───────────────────────────────────────────
-
 async function loadOrders(targetBodyId) {
   try {
     const data = await fetchWebhook(ADMIN_CONFIG.ORDERS_WEBHOOK, { action: "get_orders" }) || {};
+    
+    // Check if the base object is an array, or look into the standard dictionary wrappers
     const orders = Array.isArray(data) ? data : (data?.orders || data?.data || []);
 
     if (!orders || orders.length === 0) {
-      const empty = `<tr><td colspan="9"><div class="empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M11 21.73a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73z"/></svg><p>No orders yet</p></div></td></tr>`;
-      document.getElementById(targetBodyId).innerHTML = empty;
+      document.getElementById(targetBodyId).innerHTML = `<tr><td colspan="9"><div class="empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M11 21.73a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73z"/></svg><p>No orders found yet</p></div></td></tr>`;
       return;
     }
 
     const rows = orders.map(o => {
-      // Unpack values cleanly if Make passes them as single-item data arrays
-      const ref = Array.isArray(o.reference) ? o.reference[0] : (o.reference || o.ref || "—");
-      const cust = Array.isArray(o.customer) ? o.customer[0] : (o.customer || o.name || "—");
-      const phone = Array.isArray(o.phone) ? o.phone[0] : (o.phone || "—");
-      const bundle = Array.isArray(o.bundle_size) ? o.bundle_size[0] : (o.bundle_size || o.bundle || "—");
-      const net = Array.isArray(o.network) ? o.network[0] : (o.network || "—");
-      const amt = Array.isArray(o.amount) ? o.amount[0] : (o.amount || 0);
-      const pay = Array.isArray(o.payment) ? o.payment[0] : (o.payment || "—");
-      const stat = Array.isArray(o.status) ? o.status[0] : (o.status || o.vtu_status || "unknown");
-      const time = Array.isArray(o.timestamp) ? o.timestamp[0] : (o.timestamp || o.created_at);
+      // Safely unwrap data layers regardless of if they are deep array matrices or single strings
+      const ref = unwrap(o.reference ?? o.ref, "—");
+      const cust = unwrap(o.customer ?? o.name, "—");
+      const phone = unwrap(o.phone, "—");
+      const bundle = unwrap(o.bundle_size ?? o.bundle, "—");
+      const net = unwrap(o.network, "—");
+      const amt = unwrap(o.amount, 0);
+      const pay = unwrap(o.payment, "—");
+      const stat = unwrap(o.status ?? o.vtu_status, "unknown");
+      const time = unwrap(o.timestamp ?? o.created_at, null);
 
       return `
         <tr>
@@ -514,7 +529,7 @@ async function loadOrders(targetBodyId) {
           <td>${phone}</td>
           <td>${bundle}</td>
           <td>${netTag(net)}</td>
-          <td><strong>${Number(amt).toFixed(2)}</strong></td>
+          <td><strong>${isNaN(Number(amt)) ? amt : Number(amt).toFixed(2)}</strong></td>
           <td>${pay}</td>
           <td>${badgeFor(stat)}</td>
           <td style="color:var(--muted);font-size:12px">${timeAgo(time)}</td>
@@ -524,8 +539,7 @@ async function loadOrders(targetBodyId) {
 
     document.getElementById(targetBodyId).innerHTML = rows;
   } catch (e) {
-    document.getElementById(targetBodyId).innerHTML =
-      `<tr><td colspan="9" style="color:var(--red);font-size:13px;padding:16px">⚠ Failed to load — check webhook parameters</td></tr>`;
+    document.getElementById(targetBodyId).innerHTML = `<tr><td colspan="9" style="color:var(--red);font-size:13px;padding:16px">⚠ Failed to process layout — parsing validation error</td></tr>`;
     console.warn("Orders load failed:", e);
   }
 }
@@ -537,26 +551,24 @@ async function loadTransactions() {
     const txs = Array.isArray(data) ? data : (data.transactions || data.data || []);
 
     if (txs.length === 0) {
-      document.getElementById("txBody").innerHTML =
-        `<tr><td colspan="7"><div class="empty-state"><p>No transactions yet</p></div></td></tr>`;
+      document.getElementById("txBody").innerHTML = `<tr><td colspan="7"><div class="empty-state"><p>No transaction history</p></div></td></tr>`;
       return;
     }
 
     document.getElementById("txBody").innerHTML = txs.map(t => `
       <tr>
-        <td><strong>${t.transaction_id || t.txn_id || t.id || "—"}</strong></td>
-        <td>${t.phone || "—"}</td>
-        <td><strong>${Number(t.amount || 0).toFixed(2)}</strong></td>
-        <td>${t.bundle_size || t.bundle || "—"}</td>
-        <td>${badgeFor(t.mtn_status || t.status)}</td>
-        <td style="font-size:12px">${t.reference || t.ref || "—"}</td>
-        <td style="color:var(--muted);font-size:12px">${timeAgo(t.created_at || t.timestamp)}</td>
+        <td><strong>${unwrap(t.transaction_id ?? t.txn_id ?? t.id, "—")}</strong></td>
+        <td>${unwrap(t.phone, "—")}</td>
+        <td><strong>${Number(unwrap(t.amount, 0)).toFixed(2)}</strong></td>
+        <td>${unwrap(t.bundle_size ?? t.bundle, "—")}</td>
+        <td>${badgeFor(unwrap(t.mtn_status ?? t.status, "unknown"))}</td>
+        <td style="font-size:12px">${unwrap(t.reference ?? t.ref, "—")}</td>
+        <td style="color:var(--muted);font-size:12px">${timeAgo(unwrap(t.created_at ?? t.timestamp, null))}</td>
       </tr>
     `).join("");
     document.getElementById("txUpdated").textContent = nowStr();
   } catch (e) {
-    document.getElementById("txBody").innerHTML =
-      `<tr><td colspan="7" style="color:var(--red);font-size:13px;padding:16px">⚠ Failed — check TRANSACTIONS_WEBHOOK URL</td></tr>`;
+    document.getElementById("txBody").innerHTML = `<tr><td colspan="7" style="color:var(--red);font-size:13px;padding:16px">⚠ Failed to sync transaction database tables</td></tr>`;
     console.warn("Transactions load failed:", e);
   }
 }
@@ -568,25 +580,23 @@ async function loadCustomers() {
     const custs = Array.isArray(data) ? data : (data.customers || data.data || []);
 
     if (custs.length === 0) {
-      document.getElementById("custBody").innerHTML =
-        `<tr><td colspan="6"><div class="empty-state"><p>No customers yet</p></div></td></tr>`;
+      document.getElementById("custBody").innerHTML = `<tr><td colspan="6"><div class="empty-state"><p>No customers found</p></div></td></tr>`;
       return;
     }
 
     document.getElementById("custBody").innerHTML = custs.map(c => `
       <tr>
-        <td><strong>${c.name || c.customer || "—"}</strong></td>
-        <td>${c.phone || "—"}</td>
-        <td style="color:var(--muted)">${c.email || "—"}</td>
-        <td>${c.order_count || c.orders || 0}</td>
-        <td><strong>GH₵ ${Number(c.total_spent || 0).toFixed(2)}</strong></td>
-        <td style="color:var(--muted);font-size:12px">${timeAgo(c.last_order || c.last_order_date)}</td>
+        <td><strong>${unwrap(c.name ?? c.customer, "—")}</strong></td>
+        <td>${unwrap(c.phone, "—")}</td>
+        <td style="color:var(--muted)">${unwrap(c.email, "—")}</td>
+        <td>${unwrap(c.order_count ?? c.orders, 0)}</td>
+        <td><strong>GH₵ ${Number(unwrap(c.total_spent, 0)).toFixed(2)}</strong></td>
+        <td style="color:var(--muted);font-size:12px">${timeAgo(unwrap(c.last_order ?? c.last_order_date, null))}</td>
       </tr>
     `).join("");
     document.getElementById("custUpdated").textContent = nowStr();
   } catch (e) {
-    document.getElementById("custBody").innerHTML =
-      `<tr><td colspan="6" style="color:var(--red);font-size:13px;padding:16px">⚠ Failed — check CUSTOMERS_WEBHOOK URL</td></tr>`;
+    document.getElementById("custBody").innerHTML = `<tr><td colspan="6" style="color:var(--red);font-size:13px;padding:16px">⚠ Failed to sync customer profiles</td></tr>`;
     console.warn("Customers load failed:", e);
   }
 }
@@ -607,10 +617,10 @@ async function refreshCurrentPage() {
   setRefreshing(true);
   try {
     if (currentPage === "dashboard") {
-      await Promise.all([
-        loadStats(),
-        loadOrders("dashOrdersBody")
-      ]);
+      // Execute layout loading sequentially with a small delay gap to stay clear of Make rate limits
+      await loadStats();
+      await delay(600); 
+      await loadOrders("dashOrdersBody");
     } else if (currentPage === "orders") {
       await loadOrders("ordersBody");
       document.getElementById("ordersUpdated").textContent = nowStr();
@@ -620,7 +630,7 @@ async function refreshCurrentPage() {
       await loadCustomers();
     }
   } catch (globalErr) {
-    console.error("Global refresh failure:", globalErr);
+    console.error("Global system refreshing event failed:", globalErr);
   } finally {
     setRefreshing(false);
   }
