@@ -370,16 +370,16 @@ function unwrap(val, fallback = "—") {
 
 async function fetchAll() {
   try {
-    const res = await fetch(WEBHOOK, {
-      method: "POST",
-      mode: "cors",
-      headers: { "Content-Type": "application/json", "Accept": "application/json" },
-      body: JSON.stringify({ action: "get_all" })
+    // We append a cache-buster timestamp so Safari doesn't cache old data
+    const urlWithCacheBuster = `${WEBHOOK}?action=get_all&_cb=${Date.now()}`;
+    
+    const res = await fetch(urlWithCacheBuster, {
+      method: "GET",
+      headers: { "Accept": "application/json" }
     });
 
     if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
     
-    // Direct, single-line parsing since Make.com does all the work
     return await res.json(); 
   } catch (err) {
     console.error("Network fetch failed. Falling back to demo data:", err.message);
